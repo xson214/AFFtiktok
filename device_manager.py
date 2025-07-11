@@ -3,25 +3,24 @@ import subprocess
 from collections import defaultdict
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QLineEdit, QTableWidget, QTableWidgetItem, QMessageBox, QSizePolicy
+    QLineEdit, QTableWidget, QTableWidgetItem, QMessageBox, QSizePolicy, QGroupBox,
 )
 from PyQt5.QtCore import Qt
-from tinydb import TinyDB, Query
+from tinydb import TinyDB
 
 DB_FILE = "device_data.json"
-
 
 class DeviceManager(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Android Device Manager")
-        self.resize(1000, 600)
+        self.resize(1100, 600)
 
         self.db = TinyDB(DB_FILE)
         self.packages = self.load_packages()
         self.devices = []
-        self.data = defaultdict(dict)          # { device_id: {package_name: user_name} }
-        self.device_names = {}  # { device_id: device_custom_name }
+        self.data = defaultdict(dict)        # { device_id: {package_name: user_name} }
+        self.device_names = {}               # { device_id: custom_name }
 
         self.init_ui()
         self.load_from_db()
@@ -30,65 +29,40 @@ class DeviceManager(QWidget):
     def init_ui(self):
         layout = QVBoxLayout()
 
-        # ==== Title ====
         title = QLabel("Android Device Manager")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("font-size: 22px; font-weight: bold; margin-bottom: 10px;")
         layout.addWidget(title)
 
-        # ==== Top bar ====
+        # Refresh button
         top_layout = QHBoxLayout()
-        top_layout.setSpacing(15)
-        top_layout.setContentsMargins(10, 10, 10, 10)
-
-        device_label = QLabel("Select Device:")
-        device_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        top_layout.addWidget(device_label)
-
-        self.device_combo = QComboBox()
-        self.device_combo.setMinimumWidth(200)
-        self.device_combo.currentIndexChanged.connect(self.update_table)
-        top_layout.addWidget(self.device_combo, 2)
-
-        name_label = QLabel("Device Name:")
-        name_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        top_layout.addWidget(name_label)
-
-        self.device_name_input = QLineEdit()
-        self.device_name_input.setPlaceholderText("Nhập tên thiết bị tuỳ chỉnh...")
-        self.device_name_input.setMinimumWidth(180)
-        self.device_name_input.editingFinished.connect(self.set_device_name)
-        top_layout.addWidget(self.device_name_input, 2)
-
+        top_layout.addStretch()
         refresh_btn = QPushButton("Refresh Devices")
-        refresh_btn.setMinimumWidth(120)
+        refresh_btn.setMinimumWidth(150)
         refresh_btn.clicked.connect(self.load_devices)
-        top_layout.addWidget(refresh_btn, 1)
-
+        top_layout.addWidget(refresh_btn)
+        top_layout.addStretch()
         layout.addLayout(top_layout)
 
-        # ==== Table in GroupBox ====
-        from PyQt5.QtWidgets import QGroupBox
+        # Table
         table_group = QGroupBox()
-        table_group.setStyleSheet("QGroupBox { font-weight: bold; font-size: 14px; margin-top: 10px; } ")
+        table_group.setStyleSheet("QGroupBox { font-weight: bold; font-size: 14px; margin-top: 10px; }")
         table_layout = QVBoxLayout()
 
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Device Name", "Package Name", "User Name", "Set User"])
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(["STT", "Device ID", "Device Name", "Package Name", "User Name", "Set User"])
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.table.verticalHeader().setDefaultSectionSize(36)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setStyleSheet("QTableWidget { font-size: 13px; } QHeaderView::section { font-size: 13px; font-weight: bold; }")
-        self.table.setMinimumHeight(350)
+        self.table.setMinimumHeight(400)
 
         table_layout.addWidget(self.table)
         table_group.setLayout(table_layout)
         layout.addWidget(table_group)
 
-        # Padding bottom
-        layout.addSpacing(10)
         self.setLayout(layout)
 
     def load_packages(self):
@@ -121,7 +95,6 @@ class DeviceManager(QWidget):
             lines = result.strip().splitlines()[1:]
             self.devices = [line.split()[0] for line in lines if "device" in line]
 
-            self.device_combo.clear()
             for device_id in self.devices:
                 if device_id not in self.data:
                     self.data[device_id] = {}
@@ -131,68 +104,76 @@ class DeviceManager(QWidget):
                     if pkg not in self.data[device_id]:
                         self.data[device_id][pkg] = ""
 
-                display = f"{self.device_names[device_id]} ({device_id})"
-                self.device_combo.addItem(display, device_id)
-
             self.update_table()
 
         except subprocess.CalledProcessError as e:
             QMessageBox.critical(self, "ADB Error", str(e))
 
     def update_table(self):
-        current_index = self.device_combo.currentIndex()
-        if current_index == -1:
-            return
+        total_rows = len(self.devices) * len(self.packages)
+        self.table.setRowCount(total_rows)
 
-        device_id = self.device_combo.currentData()
-        device_name = self.device_names.get(device_id, device_id)
-        self.device_name_input.setText(device_name)
+        row_index = 0
+        for device_index, device_id in enumerate(self.devices, start=1):
+            device_name = self.device_names.get(device_id, device_id)
+            for pkg_index, pkg in enumerate(self.packages):
+                user_name = self.data[device_id].get(pkg, "")
 
-        self.table.setRowCount(len(self.packages))
+                # STT
+                if pkg_index == 0:
+                    stt_item = QTableWidgetItem(str(device_index))
+                    stt_item.setFlags(Qt.ItemIsEnabled)
+                    self.table.setItem(row_index, 0, stt_item)
+                else:
+                    self.table.setItem(row_index, 0, QTableWidgetItem(""))
 
-        for row, pkg in enumerate(self.packages):
-            user_name = self.data[device_id].get(pkg, "")
+                # Device ID and Name
+                if pkg_index == 0:
+                    id_item = QTableWidgetItem(device_id)
+                    id_item.setFlags(Qt.ItemIsEnabled)
 
-            name_item = QTableWidgetItem(device_name if row == 0 else "")
-            pkg_item = QTableWidgetItem(pkg)
-            user_item = QTableWidgetItem(user_name)
+                    name_input = QLineEdit(device_name)
+                    name_input.setPlaceholderText("Custom name...")
+                    name_input.editingFinished.connect(
+                        lambda dev=device_id, input_box=name_input: self.set_device_name(dev, input_box)
+                    )
 
-            name_item.setFlags(Qt.ItemIsEnabled)
-            pkg_item.setFlags(Qt.ItemIsEnabled)
-            user_item.setFlags(Qt.ItemIsEnabled)
+                    self.table.setItem(row_index, 1, id_item)
+                    self.table.setCellWidget(row_index, 2, name_input)
+                else:
+                    self.table.setItem(row_index, 1, QTableWidgetItem(""))
+                    self.table.setCellWidget(row_index, 2, QWidget())
 
-            user_input = QLineEdit(user_name)
-            user_input.setPlaceholderText("Enter username...")
-            user_input.editingFinished.connect(
-                lambda row=row, input_box=user_input: self.set_user(row, input_box)
-            )
+                # Package
+                pkg_item = QTableWidgetItem(pkg)
+                pkg_item.setFlags(Qt.ItemIsEnabled)
 
-            self.table.setItem(row, 0, name_item)
-            self.table.setItem(row, 1, pkg_item)
-            self.table.setItem(row, 2, user_item)
-            self.table.setCellWidget(row, 3, user_input)
+                user_item = QTableWidgetItem(user_name)
+                user_item.setFlags(Qt.ItemIsEnabled)
 
-    def set_user(self, row, input_box):
-        device_id = self.device_combo.currentData()
-        pkg = self.packages[row]
+                user_input = QLineEdit(user_name)
+                user_input.setPlaceholderText("Enter username...")
+                user_input.editingFinished.connect(
+                    lambda dev=device_id, p=pkg, input_box=user_input: self.set_user(dev, p, input_box)
+                )
+
+                self.table.setItem(row_index, 3, pkg_item)
+                self.table.setItem(row_index, 4, user_item)
+                self.table.setCellWidget(row_index, 5, user_input)
+
+                row_index += 1
+
+    def set_user(self, device_id, pkg, input_box):
         user = input_box.text().strip()
         self.data[device_id][pkg] = user
-        self.table.item(row, 2).setText(user)
         self.save_to_db()
-
-    def set_device_name(self):
-        current_index = self.device_combo.currentIndex()
-        if current_index == -1:
-            return
-
-        device_id = self.device_combo.currentData()
-        name = self.device_name_input.text().strip() or device_id
-        self.device_names[device_id] = name
-
-        self.device_combo.setItemText(current_index, f"{name} ({device_id})")
         self.update_table()
-        self.save_to_db()
 
+    def set_device_name(self, device_id, input_box):
+        name = input_box.text().strip() or device_id
+        self.device_names[device_id] = name
+        self.save_to_db()
+        self.update_table()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
